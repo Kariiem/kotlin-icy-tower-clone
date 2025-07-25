@@ -1,0 +1,62 @@
+headers            = raylib.h raymath.h rlgl.h
+package            = raylib
+staticLibraries    = libraylib.a
+libraryPaths       = raylib-5.5_linux_amd64/lib
+compilerOpts.linux = -Iraylib-5.5_linux_amd64/include
+nonStrictEnums     = TraceLogLevel
+//linkerOpts.linux = -Lraylib-5.5_linux_amd64/lib -lraylib -lm
+
+---
+#undef LIGHTGRAY
+#undef GRAY
+#undef DARKGRAY
+#undef YELLOW
+#undef GOLD
+#undef ORANGE
+#undef PINK
+#undef RED
+#undef MAROON
+#undef GREEN
+#undef LIME
+#undef DARKGREEN
+#undef SKYBLUE
+#undef BLUE
+#undef DARKBLUE
+#undef PURPLE
+#undef VIOLET
+#undef DARKPURPLE
+#undef BEIGE
+#undef BROWN
+#undef DARKBROWN
+#undef WHITE
+#undef BLACK
+#undef BLANK
+#undef MAGENTA
+#undef RAYWHITE
+
+static Color const LIGHTGRAY  = (Color){ 200, 200, 200, 255 };
+static Color const GRAY       = (Color){ 130, 130, 130, 255 };
+static Color const DARKGRAY   = (Color){ 80, 80, 80, 255 }   ;
+static Color const YELLOW     = (Color){ 253, 249, 0, 255 }  ;
+static Color const GOLD       = (Color){ 255, 203, 0, 255 }  ;
+static Color const ORANGE     = (Color){ 255, 161, 0, 255 }  ;
+static Color const PINK       = (Color){ 255, 109, 194, 255 };
+static Color const RED        = (Color){ 230, 41, 55, 255 }  ;
+static Color const MAROON     = (Color){ 190, 33, 55, 255 }  ;
+static Color const GREEN      = (Color){ 0, 228, 48, 255 }   ;
+static Color const LIME       = (Color){ 0, 158, 47, 255 }   ;
+static Color const DARKGREEN  = (Color){ 0, 117, 44, 255 }   ;
+static Color const SKYBLUE    = (Color){ 102, 191, 255, 255 };
+static Color const BLUE       = (Color){ 0, 121, 241, 255 }  ;
+static Color const DARKBLUE   = (Color){ 0, 82, 172, 255 }   ;
+static Color const PURPLE     = (Color){ 200, 122, 255, 255 };
+static Color const VIOLET     = (Color){ 135, 60, 190, 255 } ;
+static Color const DARKPURPLE = (Color){ 112, 31, 126, 255 } ;
+static Color const BEIGE      = (Color){ 211, 176, 131, 255 };
+static Color const BROWN      = (Color){ 127, 106, 79, 255 } ;
+static Color const DARKBROWN  = (Color){ 76, 63, 47, 255 }   ;
+static Color const WHITE      = (Color){ 255, 255, 255, 255 };
+static Color const BLACK      = (Color){ 0, 0, 0, 255 }      ;
+static Color const BLANK      = (Color){ 0, 0, 0, 0 }        ;
+static Color const MAGENTA    = (Color){ 255, 0, 255, 255 }  ;
+static Color const RAYWHITE   = (Color){ 245, 245, 245, 255 };
