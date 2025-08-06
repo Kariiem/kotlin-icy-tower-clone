@@ -72,6 +72,10 @@ data class Camera2D(var offset: Vec2, var target: Vec2, var rotation: Float, var
     val bottom get() = target.y - offset.y
     val top    get() = target.y + (Config.HEIGHT - offset.y)
 
+    val scrollSpeed = 200.0f
+    val followSpeed = 10.0f
+    val followThreshold = Config.HEIGHT * 1/3
+
     fun toCValue(memScope: MemScope): CValue<raylib.Camera2D> {
         val cam = memScope.alloc<raylib.Camera2D>()
 
@@ -86,23 +90,15 @@ data class Camera2D(var offset: Vec2, var target: Vec2, var rotation: Float, var
     }
 
     fun focus(offset:Vec2, target: Vec2, dt: Float) {
-        val speed = Vec2(0.0f, 200.0f)
         this.offset = offset
-        this.target += speed * dt
-        val topThreshold = this.target.y + 1/2 * Config.HEIGHT/2
-        // TODO(investigate: Thu Jul 24 20:06:55 2025)
-        if (false && target.y >  topThreshold) {
-            val minEffectLength = 10.0f
-            val fractionSpeed = 0.8f
+        this.target.y += scrollSpeed * dt
 
-            val diff = target - this.target
-            val length = diff.length
-
-            if (length > minEffectLength) {
-                val speed: Float = max(fractionSpeed * length, speed.y)
-                this.target = this.target + diff * (speed * dt/length)
-            }
+        val dist = target.y - this.target.y
+        if (dist > followThreshold) {
+            val dy = target.y - followThreshold
+            this.target.y += (dy - this.target.y) * followSpeed * dt
         }
+
     }
 }
 
@@ -150,18 +146,21 @@ class TileManager(var scrollSpeed: Float) : Entity {
     private var tiles : Array<Tile> = run {
         val count: Int = Config.HEIGHT.toInt()/Config.TILE_HEIGHT.toInt()
         val repeat: Int = count * 2
-        Array(count*10) { i ->
+        val initValue: Array<Tile> = Array(count*10) { i ->
             val x1 :Float =
-                if (i % repeat > 0) Random.nextInt(Config.WIDTH).toFloat()
+                if (i % repeat > 0) Random.nextInt(IntRange(Config.WIDTH *1/5,
+                                                            Config.WIDTH *4/5)).toFloat()
                 else 0.0f
-            val y1: Float = i * 100.0f
+            val y1: Float = i * 200.0f
             val w: Float =
-                if (i % repeat > 0) Random.nextInt(Config.WIDTH).toFloat()
+                if (i % repeat > 0) Random.nextInt(IntRange(Config.WIDTH *1/5,
+                                                            Config.WIDTH *4/5)).toFloat()
                 else Config.WIDTH.toFloat()
             val h: Float = Config.TILE_HEIGHT
 
-            Tile(Rect(x1, y1, w, h))
+            Tile(Rect(x1, y1, max(w, 200.0f), h))
         }
+        initValue
     }
 
     var ground_rect: Rect = tiles[0].rect
@@ -195,7 +194,8 @@ class TileManager(var scrollSpeed: Float) : Entity {
                 p.rect.overlapIntervals(ground_rect).x > 0) {
             p.ground_rect = ground_rect
         } else if (p.falling) {
-            p.ground_rect =  tiles[0].rect
+            p.ground_rect = Rect(0.0f, 0.0f, 0.0f, 0.0f)
+            // p.ground_rect = tiles[0].rect
         }
     }
 }
@@ -207,18 +207,27 @@ class Player(var rect: Rect, var ground_rect: Rect) : Entity {
     val falling: Boolean get() = v.y < 0
     val pos: Vec2        get() = Vec2(rect.x1, rect.y1)
 
-    private val max_dr = 300.0f
-    private val g      = Vec2(0.0f, -5000.0f)
-    private val v0     = Vec2(0.0f, sqrt(-g.y * max_dr * 2))
+    private val h_max = 250.0f
+    private val t_max = 0.3f
+
+    private val a     = Vec2(0.0f, -1 * computeGravityAccleration(h_max, t_max))
+    private val v0    = Vec2(0.0f, computeInitialVeloctiy(h_max, t_max))
+
+    companion object {
+        fun computeGravityAccleration(h_max: Float, t_max: Float) =
+            (2*h_max)/(t_max * t_max)
+        fun computeInitialVeloctiy(h_max: Float, t_max: Float) =
+            2*h_max/t_max
+    }
 
     override fun update(dt: Float) {
         if (grounded) {
             rect.y1 = ground_rect.y2
             return
         }
-        v += g * dt
-        rect.y1 += v.y*dt + g.y * dt*dt * 0.5f
-        rect.x1 += v.x*dt + g.x * dt*dt * 0.5f
+        v += a * dt
+        rect.y1 += v.y*dt + a.y * dt*dt * 0.5f
+        rect.x1 += v.x*dt + a.x * dt*dt * 0.5f
 
         if (falling && rect.y1 - ground_rect.y2 <= 1.0f ) {
             v.y = 0.0f
@@ -241,7 +250,6 @@ class Player(var rect: Rect, var ground_rect: Rect) : Entity {
         if (rect.overlapIntervals(ground_rect).x == 0.0f) {
             grounded = false
             ground_rect = Rect(0.0f, 0.0f, 0.0f, 0.0f)
-            v.y = 0.0f
         }
     }
 
