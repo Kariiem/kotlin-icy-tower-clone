@@ -315,9 +315,7 @@ class Game {
 
 fun main() {
     setTraceLogLevel(LOG_ALL)
-    setConfigFlags(FLAG_WINDOW_UNDECORATED  or
-                   FLAG_WINDOW_TOPMOST      or
-                   FLAG_WINDOW_ALWAYS_RUN)
+    setConfigFlags(FLAG_WINDOW_ALWAYS_RUN)
     setTargetFPS(60)
     initWindow(Config.WIDTH, Config.HEIGHT, Config.WIN_TITLE)
     initAudioDevice()
