@@ -144,7 +144,7 @@ class Tile(val rect: Rect) : Entity {
 
 class TileManager(var scrollSpeed: Float) : Entity {
     private var tiles : Array<Tile> = run {
-        val count: Int = Config.HEIGHT.toInt()/Config.TILE_HEIGHT.toInt()
+        val count: Int = Config.HEIGHT/Config.TILE_HEIGHT.toInt()
         val repeat: Int = count * 2
         val initValue: Array<Tile> = Array(count*10) { i ->
             val x1 :Float =
