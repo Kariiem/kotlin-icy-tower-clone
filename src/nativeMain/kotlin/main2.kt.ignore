@@ -261,7 +261,7 @@ class Game {
     var pause: Boolean = false
     var time: Float    = 0.0f
     var gameLevel: Int = 1
-    var scroe: Int = 0
+    var score: Int = 0
 
     val center = Vec2(Config.WIDTH.toFloat()/2, Config.HEIGHT.toFloat()/2)
 
@@ -313,7 +313,7 @@ class Game {
     }
 }
 
-fun main() {
+fun main2() {
     setTraceLogLevel(LOG_ALL)
     setConfigFlags(FLAG_WINDOW_ALWAYS_RUN)
     setTargetFPS(60)

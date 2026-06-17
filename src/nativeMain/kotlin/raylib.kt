@@ -27,6 +27,7 @@ fun resumeSound(sound: CValue<Sound>)          = ResumeSound(sound)
 
 fun getKeyPressed()                            = GetKeyPressed().toUInt()
 fun isKeyDown(key: UInt)                       = IsKeyDown(key.toInt())
+fun isKeyPressed(key: UInt)                    = IsKeyPressed(key.toInt())
 fun isKeyPressedRepeat(key: UInt)              = IsKeyPressedRepeat(key.toInt())
 
 fun beginDrawing()                             = BeginDrawing()
