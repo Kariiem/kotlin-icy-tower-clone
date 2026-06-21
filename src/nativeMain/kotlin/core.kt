@@ -27,64 +27,6 @@ object WindowParams {
     const val WIN_TITLE = "icy-tower"
 }
 
-// Camera
-class Camera2D (
-    var offsetX: Float,
-    var offsetY: Float,
-    var targetX: Float,
-    var targetY: Float,
-    var rotation: Float,
-    var zoom: Float
-) {
-    val left   get() = targetX - offsetX
-    val right  get() = targetX + (WindowParams.WIDTH  - offsetX)
-    val bottom get() = targetY - offsetY
-    val top    get() = targetY + (WindowParams.HEIGHT - offsetY)
-
-    val raylibOffsetX: Float get() = offsetX
-    val raylibOffsetY: Float get() = WindowParams.HEIGHT - offsetY
-    val raylibTargetX: Float get() = targetX
-    val raylibTargetY: Float get() = WindowParams.HEIGHT - targetY
-
-
-    val scrollSpeed = 200.0f
-    val followSpeed = 10.0f
-    val followThreshold = WindowParams.HEIGHT * 1/3
-
-    companion object {
-        fun beginMode2D(camera: Camera2D) = memScoped { BeginMode2D(camera.toCValue(this)) }
-        fun endMode2D() =  EndMode2D()
-    }
-
-    fun toCValue(memScope: MemScope): CValue<raylib.Camera2D> {
-        val cam = memScope.alloc<raylib.Camera2D>()
-
-        cam.offset.x = raylibOffsetX
-        cam.offset.y = raylibOffsetY
-        cam.target.x = raylibTargetX
-        cam.target.y = raylibTargetY
-
-        cam.rotation = rotation
-        cam.zoom = zoom
-        return cam.readValue()
-    }
-
-    fun focus(offsetX: Float, offsetY: Float,
-              targetX: Float, targetY: Float,
-              dt: Float) {
-        this.offsetX = offsetX
-        this.offsetY = offsetY
-        this.targetY += scrollSpeed * dt
-
-        val dist = targetY - this.targetY
-        if (dist > followThreshold) {
-            val dy = targetY - followThreshold
-            this.targetY += (dy - this.targetY) * followSpeed * dt
-        }
-
-    }
-}
-
 class AABB(
     val top:    Float,
     val left:   Float,
@@ -99,23 +41,27 @@ object GameState {
     var time: Float = 0f
     val mainPlayerID = 1
     val centerX = WindowParams.WIDTH/2f
-    val centerY = WindowParams.HEIGHT/2f
+    val centerY = WindowParams.HEIGHT/8f
 
     val playerPositionX = WindowParams.WIDTH/2f
     val playerPositionY = 10f
 
-    var camera: Camera2D = Camera2D(
-        offsetX = centerX,
-        offsetY = centerY,
-        targetX = playerPositionX,
-        targetY = playerPositionY,
-        rotation = 0.0f,
-        zoom = 1.0f
+    var camera: NativeCamera2D = NativeCamera2D(
+        initialOffsetX = centerX,
+        initialOffsetY = centerY,
+        initialTargetX = playerPositionX,
+        initialTargetY = playerPositionY,
+        initialRotation = 0.0f,
+        initialZoom = 1.0f
     )
-    val entities:           ArrayList<GameObject>              = ArrayList()
-    val inputComponents:    HashMap<Entity, InputComponent>    = HashMap()
-    val physicsComponents:  HashMap<Entity, PhysicsComponent>  = HashMap()
-    val graphicsComponents: HashMap<Entity, GraphicsComponent> = HashMap()
+
+    var playerRef : GameObject? = null
+
+    val entities:            ArrayList<GameObject>               = ArrayList()
+    val inputComponents:     HashMap<Entity, InputComponent>     = HashMap()
+    val physicsComponents:   HashMap<Entity, PhysicsComponent>   = HashMap()
+    val collisionComponents: HashMap<Entity, CollisionComponent> = HashMap()
+    val graphicsComponents:  HashMap<Entity, GraphicsComponent>  = HashMap()
 }
 
 /////////////////////////////////////////////////////////////
@@ -133,12 +79,16 @@ class GameObject (
     var ax: Float = 0f,
     var ay: Float = 0f,
 ) {
-    var isGrounded: Boolean = true
-
     val raylibX: Float get() = x
     val raylibY: Float get() = WindowParams.HEIGHT - y
 }
 
+data class CollisionResult (
+    val cx: Float,
+    val cy: Float,
+    val nx: Float,
+    val ny: Float,
+)
 
 /////////////////////////////////////////////////////////////
 interface InputComponent {
@@ -154,7 +104,36 @@ interface GraphicsComponent {
 }
 
 interface CollisionComponent {
-    fun detectCollision(gobj: GameObject, other: GameObject): Boolean
+    fun detectCollision(gobj: GameObject, other: GameObject): CollisionResult? {
+        val aabb1 = aabb(gobj)
+        val aabb2 = aabb(other)
+
+        val overlapLeft   = aabb2.right  - aabb1.left
+        val overlapRight  = aabb1.right  - aabb2.left
+        val overlapBottom = aabb2.top    - aabb1.bottom
+        val overlapTop    = aabb1.top    - aabb2.bottom
+
+        val isColliding =
+            overlapLeft   > 0 &&
+            overlapRight  > 0 &&
+            overlapBottom > 0 &&
+            overlapTop    > 0
+
+        if (!isColliding) return null
+
+        val overlapX = minOf(overlapLeft, overlapRight)
+        val overlapY = minOf(overlapBottom, overlapTop)
+
+        val (nx, ny) = when {
+            overlapX < overlapY -> (if (overlapLeft < overlapRight) -1f else 1f) to 0f
+            else                -> 0f to (if (overlapBottom < overlapTop) -1f else 1f)
+        }
+
+        val cx = (maxOf(aabb1.left, aabb2.left) + minOf(aabb1.right, aabb2.right)) / 2f
+        val cy = (maxOf(aabb1.bottom, aabb2.bottom) + minOf(aabb1.top, aabb2.top)) / 2f
+
+        return CollisionResult(cx, cy, nx, ny)
+    }
 
     fun aabb(gobj: GameObject) = AABB(
         left = gobj.x - gobj.w/2,
@@ -162,6 +141,8 @@ interface CollisionComponent {
         top = gobj.y + gobj.h/2,
         bottom = gobj.y - gobj.h/2
     )
+
+    fun resolveCollsion(gobj: GameObject, other: GameObject)
 }
 
 /////////////////////////////////////////////////////////////
@@ -170,19 +151,37 @@ class GameInputComponent : InputComponent {
         when {
             isKeyPressed(KEY_Q)                        -> GameState.exit = true
             isKeyPressed(KEY_P) || isKeyPressed(KEY_K) -> GameState.pause = !GameState.pause
-            isKeyPressed(KEY_R)                        -> {}
+            isKeyPressed(KEY_R) && GameState.playerRef != null -> {
+                val playerRef = GameState.playerRef!!
+                playerRef.x = GameState.playerPositionX
+                playerRef.y = GameState.playerPositionY
+                playerRef.vx = 0f
+                playerRef.vy = 0f
+                playerRef.ax = 0f
+                playerRef.ay = 0f
+
+                val phyComp = GameState.physicsComponents[playerRef.id]!! as PlayerPhysicsComponent
+                phyComp.playerState = PlayerState.Stationary
+                phyComp.groundTile = null
+            }
         }
     }
 }
 
 class GamePhysicsComponent : PhysicsComponent {
     override fun update(gobj: GameObject, dt: Float) {
-        if (GameState.pause) return;
         GameState.time += dt
         val playerGobj = GameState.entities[GameState.mainPlayerID]
         GameState.camera.focus(GameState.centerX, GameState.centerY,
                                playerGobj.x, playerGobj.y,
                                dt)
+    }
+}
+
+class GameCollisionComponent : CollisionComponent {
+    // TODO
+    override fun resolveCollsion(gobj: GameObject, other: GameObject) {
+        // TODO
     }
 }
 
@@ -192,43 +191,34 @@ class GameGraphicsComponent : GraphicsComponent {
     }
 }
 
-class GameCollisionComponent : CollisionComponent {
-    override fun detectCollision(gobj: GameObject, other: GameObject): Boolean {
-        //cannot be null, if an entity collides, it has physics component
-        // getValue(id) is supposedly better, but !! is more clear
-        val gobjPhysicsComp = GameState.physicsComponents[gobj.id]!!
-        val otherPhysicsComp = GameState.physicsComponents[other.id]!!
 
-        return false
+/////////////////////////////////////////////////////////////
+enum class Direction {
+    Left, Right;
+    operator fun not() = when (this) {
+        Left  -> Right
+        Right -> Left
     }
 }
 
-/////////////////////////////////////////////////////////////
-class TilePhysicsComponent : PhysicsComponent {
+class TilePhysicsComponent(var dir: Direction = Direction.entries.random()) : PhysicsComponent {
     companion object {
-        const val FLOATING_SPEED = 10f
+        const val FLOATING_SPEED = 100f
     }
-
-    enum class Direction {
-        Left, Right;
-        operator fun not() = when (this) {
-            Left  -> Right
-            Right -> Left
-        }
-    }
-
-    var dir = Direction.entries.random()
 
     override fun update(gobj: GameObject, dt: Float) {
-        if (GameState.pause) return;
         when (dir) {
             Direction.Left  -> {
-                gobj.x -= FLOATING_SPEED
-                if (gobj.x - gobj.w/2 - FLOATING_SPEED < 0) dir = !dir // REFACTOR?: move out to a collision component
+                gobj.vx = -FLOATING_SPEED
+                gobj.x += gobj.vx * dt
+                // REFACTOR?: move out to a collision component
+                if (gobj.x - gobj.w/2 - FLOATING_SPEED * dt < 0) dir = !dir
             }
             Direction.Right -> {
-                gobj.x += FLOATING_SPEED
-                if (gobj.x + gobj.w/2 + FLOATING_SPEED > WindowParams.WIDTH) dir = !dir // REFACTOR?: move out to a collision component
+                gobj.vx = FLOATING_SPEED
+                gobj.x += gobj.vx * dt
+                // REFACTOR?: move out to a collision component
+                if (gobj.x + gobj.w/2 + FLOATING_SPEED * dt > WindowParams.WIDTH) dir = !dir
             }
         }
     }
@@ -237,8 +227,8 @@ class TilePhysicsComponent : PhysicsComponent {
 class TileGraphicsComponent : GraphicsComponent {
     override fun update(gobj: GameObject) {
         drawRectangleV(
-            gobj.x - gobj.w/2,
-            gobj.y - gobj.h/2,
+            gobj.raylibX - gobj.w/2,
+            gobj.raylibY - gobj.h/2,
             gobj.w,
             gobj.h,
             RED
@@ -247,53 +237,92 @@ class TileGraphicsComponent : GraphicsComponent {
 }
 
 /////////////////////////////////////////////////////////////
+enum class PlayerState {
+    Stationary,
+    OnTile,
+    Falling,
+    Rising
+}
+
 class PlayerHumanInputComponent(val h_max: Float, val t_max: Float) : InputComponent {
     companion object {
         const val WALK_SPEED = 200f
     }
-
     override fun update(gobj: GameObject) {
-        if (isKeyDown(KEY_SPACE) && gobj.isGrounded) {
+        val phyComp = GameState.physicsComponents[gobj.id]!! as PlayerPhysicsComponent
+        if (isKeyDown(KEY_SPACE) &&
+            phyComp.playerState in listOf(PlayerState.Stationary, PlayerState.OnTile)) {
             gobj.ay = -(2*h_max)/(t_max * t_max)
             gobj.vy = 2*h_max/t_max
-            gobj.isGrounded = false
+            phyComp.playerState = PlayerState.Rising
+            phyComp.groundTile = null
         }
 
         when {
             isKeyDown(KEY_RIGHT) || isKeyDown(KEY_D) -> gobj.vx =  WALK_SPEED
             isKeyDown(KEY_LEFT)  || isKeyDown(KEY_A) -> gobj.vx = -WALK_SPEED
-            else -> {
-                gobj.vx = 0f
-            }
+            phyComp.playerState == PlayerState.Stationary -> gobj.vx = 0f
+            phyComp.playerState == PlayerState.OnTile -> {}
+            else -> {}
         }
     }
 }
 
 class PlayerPhysicsComponent : PhysicsComponent {
-    companion object {
-        val GROUND_Y = GameState.playerPositionY // TODO: refactor
-    }
-    var isFalling: Boolean = false
+    var playerState = PlayerState.Stationary
+    var groundTile: GameObject? = null
 
     override fun update(gobj: GameObject, dt: Float) {
-        if (GameState.pause) return;
-
-        gobj.vy += gobj.ay * dt
-        gobj.x  += gobj.vx * dt
-        gobj.y  += gobj.vy * dt
-
-        if (gobj.vy < 0 && !isFalling) {
-            gobj.ay *= 4f
-            isFalling = true
+        // the x-axis motion is independent of the player state
+        gobj.x += gobj.vx * dt
+        when (playerState) {
+            PlayerState.Stationary -> {}
+            PlayerState.OnTile -> {
+                // for smart casting to work
+                val tile = groundTile
+                if (tile != null && isOverlapping(gobj, tile)) gobj.vx = tile.vx
+                else playerState = PlayerState.Falling
+            }
+            PlayerState.Rising     -> {
+                gobj.vy += gobj.ay * dt
+                gobj.y  += gobj.vy * dt
+                if (gobj.vy < 0) {
+                    gobj.ay *= 4f
+                    playerState = PlayerState.Falling
+                }
+            }
+            PlayerState.Falling    -> {
+                gobj.vy += gobj.ay * dt
+                gobj.y  += gobj.vy * dt
+            }
         }
+    }
 
-        // TODO: this should be handled in collision component/system
-        if (gobj.y <= GROUND_Y) {
-            gobj.y  = GROUND_Y
+    private fun isOverlapping(player: GameObject, tile: GameObject): Boolean {
+        val playerLeft  = player.x - player.w / 2
+        val playerRight = player.x + player.w / 2
+        val tileLeft    = tile.x - tile.w / 2
+        val tileRight   = tile.x + tile.w / 2
+
+        // Standard AABB horizontal overlap check
+        return playerRight > tileLeft && playerLeft < tileRight
+    }
+}
+
+class PlayerCollisionComponent : CollisionComponent {
+    override fun resolveCollsion(gobj: GameObject, other: GameObject) {
+        val phyComp = GameState.physicsComponents[gobj.id]!! as PlayerPhysicsComponent
+
+        if (phyComp.playerState != PlayerState.Falling) return
+
+        val (_, _, _, ny) = detectCollision(gobj, other) ?: return
+        if (ny > 0f) {
+            gobj.vx = other.vx
             gobj.vy = 0f
-            gobj.ay = 0f
-            gobj.isGrounded = true
-            isFalling = false
+
+            gobj.y = other.y + other.h/2 + gobj.h/2
+            phyComp.playerState = PlayerState.OnTile
+            phyComp.groundTile = other
         }
     }
 }
@@ -340,38 +369,56 @@ fun main() {
         h = 30f
     )
     GameState.entities.add(player);
-    GameState.inputComponents[1]    = PlayerHumanInputComponent(h_max = 400f, t_max = 1f)
-    GameState.physicsComponents[1]  = PlayerPhysicsComponent()
-    GameState.graphicsComponents[1] = PlayerGraphicsComponent()
+    GameState.inputComponents[1]     = PlayerHumanInputComponent(h_max = 400f, t_max = 1f)
+    GameState.physicsComponents[1]   = PlayerPhysicsComponent()
+    GameState.collisionComponents[1] = PlayerCollisionComponent()
+    GameState.graphicsComponents[1]  = PlayerGraphicsComponent()
+    GameState.playerRef = player
 
+    for (id in 2 until 10) {
+        val tile = GameObject(
+            id = id,
+            x = (id - 1) * 300f,
+            y = (id - 1) * 100f,
+            w = 400f,
+            h = 20f,
+        )
+        GameState.entities.add(tile);
+        GameState.physicsComponents[id]  = TilePhysicsComponent()
+        GameState.graphicsComponents[id] = TileGraphicsComponent()
 
-    val tile = GameObject(
-        id = 2,
-        x = Random.nextInt(wrange).toFloat(),
-        y = Random.nextInt(hrange).toFloat(),
-        w = Random.nextInt(wrange).toFloat(), // TODO: fix the case where the tile is wider than the window
-        h = 20f,
-    )
-    GameState.entities.add(tile);
-    GameState.physicsComponents[2]  = TilePhysicsComponent()
-    GameState.graphicsComponents[2] = TileGraphicsComponent()
+    }
 
     fun shouldClose(): Boolean = GameState.exit || windowShouldClose()
 
     while (!shouldClose()) {
+        // Input System
         for (entity in GameState.entities) {
             GameState.inputComponents[entity.id]?.update(entity)
         }
+
+        // Physics System
         val dt = getFrameTime();
-        for (entity in GameState.entities) {
-            GameState.physicsComponents[entity.id]?.update(entity, dt)
+        if (!GameState.pause) {
+            for (entity in GameState.entities) {
+                GameState.physicsComponents[entity.id]?.update(entity, dt)
+            }
         }
-        beginDrawing()
-        drawText("-------------------------", 0, WindowParams.HEIGHT - 400 - 30/2, 16, BLUE)
-        for (entity in GameState.entities) {
-            GameState.graphicsComponents[entity.id]?.update(entity)
+                // Collision System
+        for (i in 0 until GameState.entities.size) {
+            for (j in i+1 until GameState.entities.size) {
+                val a = GameState.entities[i]
+                val b = GameState.entities[j]
+                GameState.collisionComponents[a.id]?.resolveCollsion(a, b)
+            }
         }
-        endDrawing()
+
+        // Graphics System
+        GameState.camera.use {
+            for (entity in GameState.entities) {
+                GameState.graphicsComponents[entity.id]?.update(entity)
+            }
+        }
     }
 
     closeWindow()

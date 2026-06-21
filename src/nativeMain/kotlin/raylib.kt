@@ -2,6 +2,7 @@
 package raylib.wrapper
 
 import kotlinx.cinterop.*
+import kotlin.native.ref.createCleaner
 import raylib.*
 
 fun clearBackground(c: Color)                  = ClearBackground(c.readValue())
@@ -33,9 +34,11 @@ fun isKeyPressedRepeat(key: UInt)              = IsKeyPressedRepeat(key.toInt())
 fun beginDrawing()                             = BeginDrawing()
 fun endDrawing()                               = EndDrawing()
 
+fun beginMode2D(camera: CValue<Camera2D>)     = BeginMode2D(camera)
+fun endMode2D()                               = EndMode2D()
+
 fun getTime()                                  = GetTime()
 fun getFrameTime()                             = GetFrameTime()
-
 
 // Circles
 fun drawCircle(centerX: Int, centerY: Int, radius: Float, color: Color) {
@@ -101,4 +104,81 @@ fun Color(raw: UInt): CValue<Color> =
 // DrawText(const char *text, int posX, int posY, int fontSize, Color color);
 fun drawText(text: String, posX: Int, posY: Int, fontSize: Int, color: Color) {
     DrawText(text, posX, posY, fontSize, color.readValue());
+}
+
+// Camera
+class NativeCamera2D(
+    initialOffsetX: Float,
+    initialOffsetY: Float,
+    initialTargetX: Float,
+    initialTargetY: Float,
+    initialRotation: Float,
+    initialZoom: Float
+) {
+
+    companion object {
+        const val SCROLL_SPEED = 0f
+        const val FOLLOW_SPEED = 0f
+        const val FOLLOW_THRESHOLD = WindowParams.HEIGHT * 1f / 3f
+    }
+    val cCam = nativeHeap.alloc<raylib.Camera2D>()
+
+    @Suppress("unused")
+    @OptIn(kotlin.experimental.ExperimentalNativeApi::class)
+    private val cleaner = createCleaner(cCam.ptr) { ptr -> nativeHeap.free(ptr) }
+
+    var offsetX: Float
+        get() = cCam.offset.x
+        set(value) { cCam.offset.x = value }
+
+    var offsetY: Float
+        get() = WindowParams.HEIGHT - cCam.offset.y
+        set(value) { cCam.offset.y = WindowParams.HEIGHT - value }
+
+    var targetX: Float
+        get() = cCam.target.x
+        set(value) { cCam.target.x = value }
+
+    var targetY: Float
+        get() = WindowParams.HEIGHT - cCam.target.y
+        set(value) { cCam.target.y = WindowParams.HEIGHT - value }
+
+    var rotation: Float
+        get() = cCam.rotation
+        set(value) { cCam.rotation = value }
+
+    var zoom: Float
+        get() = cCam.zoom
+        set(value) { cCam.zoom = value }
+
+    init {
+        this.offsetX = initialOffsetX
+        this.offsetY = initialOffsetY
+        this.targetX = initialTargetX
+        this.targetY = initialTargetY
+        this.rotation = initialRotation
+        this.zoom = initialZoom
+    }
+
+    fun focus(offsetX: Float, offsetY: Float,
+              targetX: Float, targetY: Float,
+              dt: Float) {
+        this.offsetX = offsetX
+        this.offsetY = offsetY
+        this.targetY += SCROLL_SPEED * dt
+
+        val dist = targetY - this.targetY
+        if (dist > FOLLOW_THRESHOLD) {
+            val dy = targetY - FOLLOW_THRESHOLD
+            this.targetY += (dy - this.targetY) * FOLLOW_SPEED * dt
+        }
+    }
+
+    inline fun use(block: () -> Unit) {
+        beginDrawing()
+        beginMode2D(cCam.readValue())
+        block()
+        endMode2D()
+        endDrawing()
+    }
 }
