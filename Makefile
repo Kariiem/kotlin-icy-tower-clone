@@ -1,4 +1,4 @@
-export JAVA_OPTS = --enable-native-access=ALL-UNNAMED # to silence some huge warning
+export JAVA_OPTS = --enable-native-access=ALL-UNNAMED -Xmx4G # to silence some huge warning
 
 KONANC    = konanc
 CINTEROP  = cinterop
@@ -19,18 +19,29 @@ else
 $(error No display server detected: neither WAYLAND_DISPLAY nor DISPLAY is set)
 endif
 
+
+NDEBUG ?= 0
+ifeq ($(NDEBUG),1)
+  LLVM_FLAGS =
+else
+  LLVM_FLAGS = -g -Xllvm-module-passes="default<O0>"
+endif
+
 all: $(BINARY)
 
-$(KLIB): $(DEF) $(wildcard $(RAYLIB)/include/*.h)
+$(KLIB): $(DEF)
 	@mkdir -p build
+	@echo ""
 	@echo "===> building cinterop klib for $(RAYLIB)"
-	$(CINTEROP) -def $< -o $(KLIB)
+	$(CINTEROP) -def $< -o $@
 
 $(BINARY): $(KLIB) $(SOURCES)
+	@echo ""
 	@echo "===> compiling $(words $(SOURCES)) source files"
-	$(KONANC) $(SOURCES) -library $(KLIB) -o $(BINARY) \
-	  -linker-options "-Wl,-rpath,$(PWD)/$(RAYLIB)/lib"
-	@echo "===> binary ready: $(BINARY)"
+	$(KONANC) $(SOURCES) -library $(KLIB) -o $@ \
+	  -linker-options "-Wl,-rpath,$(PWD)/$(RAYLIB)/lib" $(LLVM_FLAGS)
+	@echo ""
+	@echo "===> binary ready: $@"
 
 clean:
 	rm -rf build
