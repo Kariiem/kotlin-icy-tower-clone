@@ -40,6 +40,10 @@ fun endMode2D()                               = EndMode2D()
 fun getTime()                                  = GetTime()
 fun getFrameTime()                             = GetFrameTime()
 
+fun traceLog(logLevel: UInt, message: String) {
+    raylib.TraceLog(logLevel.toInt(), message)
+}
+
 // Circles
 fun drawCircle(centerX: Int, centerY: Int, radius: Float, color: Color) {
     DrawCircle(centerX, centerY, radius, color.readValue());
@@ -117,8 +121,8 @@ class NativeCamera2D(
 ) {
 
     companion object {
-        const val SCROLL_SPEED = 0f
-        const val FOLLOW_SPEED = 0f
+        const val SCROLL_SPEED = 100f
+        const val FOLLOW_SPEED = 150f
         const val FOLLOW_THRESHOLD = WindowParams.HEIGHT * 1f / 3f
     }
     val cCam = nativeHeap.alloc<raylib.Camera2D>()
